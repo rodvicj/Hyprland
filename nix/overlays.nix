@@ -21,6 +21,7 @@ in {
   # Packages for variations of Hyprland, dependencies included.
   hyprland-packages = lib.composeManyExtensions [
     # Dependencies
+    inputs.hyprcursor.overlays.default
     inputs.hyprland-protocols.overlays.default
     inputs.hyprlang.overlays.default
     self.overlays.wlroots-hyprland
@@ -37,7 +38,6 @@ in {
         udis86 = final.udis86-hyprland; # explicit override until decided on breaking change of the name
         inherit date;
       };
-      hyprland-unwrapped = final.hyprland.override {wrapRuntimeDeps = false;};
       hyprland-debug = final.hyprland.override {debug = true;};
       hyprland-legacy-renderer = final.hyprland.override {legacyRenderer = true;};
       hyprland-nvidia =
