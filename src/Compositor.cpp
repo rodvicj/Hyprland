@@ -127,13 +127,26 @@ void CCompositor::initServer() {
         throwError("wlr_backend_autocreate() failed!");
     }
 
-    m_iDRMFD = wlr_backend_get_drm_fd(m_sWLRBackend);
-    if (m_iDRMFD < 0) {
-        Debug::log(CRIT, "Couldn't query the DRM FD!");
-        throwError("wlr_backend_get_drm_fd() failed!");
-    }
+    bool isHeadlessOnly = true;
+    wlr_multi_for_each_backend(
+        m_sWLRBackend,
+        [](wlr_backend* backend, void* isHeadlessOnly) {
+            if (!wlr_backend_is_headless(backend))
+                *(bool*)isHeadlessOnly = false;
+        },
+        &isHeadlessOnly);
 
-    m_sWLRRenderer = wlr_gles2_renderer_create_with_drm_fd(m_iDRMFD);
+    if (isHeadlessOnly) {
+        m_sWLRRenderer = wlr_renderer_autocreate(m_sWLRBackend);
+    } else {
+        m_iDRMFD = wlr_backend_get_drm_fd(m_sWLRBackend);
+        if (m_iDRMFD < 0) {
+            Debug::log(CRIT, "Couldn't query the DRM FD!");
+            throwError("wlr_backend_get_drm_fd() failed!");
+        }
+
+        m_sWLRRenderer = wlr_gles2_renderer_create_with_drm_fd(m_iDRMFD);
+    }
 
     if (!m_sWLRRenderer) {
         Debug::log(CRIT, "m_sWLRRenderer was NULL! This usually means wlroots could not find a GPU or enountered some issues.");
@@ -1433,11 +1446,15 @@ void CCompositor::cleanupFadingOut(const int& monid) {
         bool valid = windowExists(w);
 
         if (!valid || !w->m_bFadingOut || w->m_fAlpha.value() == 0.f) {
-            if (valid && !w->m_bReadyToDelete)
-                continue;
+            if (valid) {
+                w->m_bFadingOut = false;
 
-            w->m_bFadingOut = false;
-            removeWindowFromVectorSafe(w);
+                if (!w->m_bReadyToDelete)
+                    continue;
+
+                removeWindowFromVectorSafe(w);
+            }
+
             std::erase(m_vWindowsFadingOut, w);
 
             Debug::log(LOG, "Cleanup: destroyed a window");
@@ -2294,6 +2311,11 @@ void CCompositor::setWindowFullscreen(CWindow* pWindow, bool on, eFullscreenMode
 
     if (pWindow->m_bPinned) {
         Debug::log(LOG, "Pinned windows cannot be fullscreen'd");
+        return;
+    }
+
+    if (pWindow->m_bIsFullscreen == on) {
+        Debug::log(LOG, "Window is already in the required fullscreen state");
         return;
     }
 
