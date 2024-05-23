@@ -2,29 +2,35 @@
 
 #include "../defines.hpp"
 #include <deque>
+#include <set>
 #include "../Compositor.hpp"
 #include <unordered_map>
 #include <functional>
+#include "../devices/IPointer.hpp"
 
 class CInputManager;
 class CConfigManager;
 class CPluginSystem;
+class IKeyboard;
 
 struct SKeybind {
-    std::string key          = "";
-    uint32_t    keycode      = 0;
-    bool        catchAll     = false;
-    uint32_t    modmask      = 0;
-    std::string handler      = "";
-    std::string arg          = "";
-    bool        locked       = false;
-    std::string submap       = "";
-    bool        release      = false;
-    bool        repeat       = false;
-    bool        mouse        = false;
-    bool        nonConsuming = false;
-    bool        transparent  = false;
-    bool        ignoreMods   = false;
+    std::string            key          = "";
+    std::set<xkb_keysym_t> sMkKeys      = {};
+    uint32_t               keycode      = 0;
+    bool                   catchAll     = false;
+    uint32_t               modmask      = 0;
+    std::set<xkb_keysym_t> sMkMods      = {};
+    std::string            handler      = "";
+    std::string            arg          = "";
+    bool                   locked       = false;
+    std::string            submap       = "";
+    bool                   release      = false;
+    bool                   repeat       = false;
+    bool                   mouse        = false;
+    bool                   nonConsuming = false;
+    bool                   transparent  = false;
+    bool                   ignoreMods   = false;
+    bool                   multiKey     = false;
 
     // DO NOT INITIALIZE
     bool shadowed = false;
@@ -32,9 +38,12 @@ struct SKeybind {
 
 enum eFocusWindowMode {
     MODE_CLASS_REGEX = 0,
+    MODE_INITIAL_CLASS_REGEX,
     MODE_TITLE_REGEX,
+    MODE_INITIAL_TITLE_REGEX,
     MODE_ADDRESS,
-    MODE_PID
+    MODE_PID,
+    MODE_ACTIVE_WINDOW
 };
 
 struct SPressedKeyWithMods {
@@ -52,14 +61,21 @@ struct SParsedKey {
     bool        catchAll = false;
 };
 
+enum eMultiKeyCase {
+    MK_NO_MATCH = 0,
+    MK_PARTIAL_MATCH,
+    MK_FULL_MATCH
+};
+
 class CKeybindManager {
   public:
     CKeybindManager();
+    ~CKeybindManager();
 
-    bool                                                              onKeyEvent(wlr_keyboard_key_event*, SKeyboard*);
-    bool                                                              onAxisEvent(wlr_pointer_axis_event*);
-    bool                                                              onMouseEvent(wlr_pointer_button_event*);
-    void                                                              resizeWithBorder(wlr_pointer_button_event*);
+    bool                                                              onKeyEvent(std::any, SP<IKeyboard>);
+    bool                                                              onAxisEvent(const IPointer::SAxisEvent&);
+    bool                                                              onMouseEvent(const IPointer::SButtonEvent&);
+    void                                                              resizeWithBorder(const IPointer::SButtonEvent&);
     void                                                              onSwitchEvent(const std::string&);
     void                                                              onSwitchOnEvent(const std::string&);
     void                                                              onSwitchOffEvent(const std::string&);
@@ -78,7 +94,6 @@ class CKeybindManager {
     bool                                                              m_bGroupsLocked = false;
 
     std::list<SKeybind>                                               m_lKeybinds;
-    std::list<SShortcutInhibitor>                                     m_lShortcutInhibitors;
 
   private:
     std::deque<SPressedKeyWithMods> m_dPressedKeys;
@@ -100,6 +115,11 @@ class CKeybindManager {
 
     bool                            handleKeybinds(const uint32_t, const SPressedKeyWithMods&, bool);
 
+    std::set<xkb_keysym_t>          m_sMkKeys = {};
+    std::set<xkb_keysym_t>          m_sMkMods = {};
+    eMultiKeyCase                   mkBindMatches(const SKeybind);
+    eMultiKeyCase                   mkKeysymSetMatches(const std::set<xkb_keysym_t>, const std::set<xkb_keysym_t>);
+
     bool                            handleInternalKeybinds(xkb_keysym_t);
     bool                            handleVT(xkb_keysym_t);
 
@@ -109,9 +129,9 @@ class CKeybindManager {
     bool                            ensureMouseBindState();
 
     static bool                     tryMoveFocusToMonitor(CMonitor* monitor);
-    static void                     moveWindowOutOfGroup(CWindow* pWindow, const std::string& dir = "");
-    static void                     moveWindowIntoGroup(CWindow* pWindow, CWindow* pWindowInDirection);
-    static void                     switchToWindow(CWindow* PWINDOWTOCHANGETO);
+    static void                     moveWindowOutOfGroup(PHLWINDOW pWindow, const std::string& dir = "");
+    static void                     moveWindowIntoGroup(PHLWINDOW pWindow, PHLWINDOW pWindowInDirection);
+    static void                     switchToWindow(PHLWINDOW PWINDOWTOCHANGETO);
 
     // -------------- Dispatchers -------------- //
     static void     killActive(std::string);
@@ -120,6 +140,8 @@ class CKeybindManager {
     static uint64_t spawnRaw(std::string);
     static void     toggleActiveFloating(std::string);
     static void     toggleActivePseudo(std::string);
+    static void     setActiveFloating(std::string);
+    static void     setActiveTiled(std::string);
     static void     changeworkspace(std::string);
     static void     fullscreenActive(std::string);
     static void     fakeFullscreenActive(std::string);
@@ -177,6 +199,7 @@ class CKeybindManager {
     friend class CCompositor;
     friend class CInputManager;
     friend class CConfigManager;
+    friend class CWorkspace;
 };
 
 inline std::unique_ptr<CKeybindManager> g_pKeybindManager;

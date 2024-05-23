@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IHyprLayout.hpp"
+#include "../desktop/DesktopTypes.hpp"
 #include "../config/ConfigManager.hpp"
 #include <vector>
 #include <list>
@@ -19,23 +20,23 @@ enum eOrientation : uint8_t {
 };
 
 struct SMasterNodeData {
-    bool     isMaster   = false;
-    float    percMaster = 0.5f;
+    bool         isMaster   = false;
+    float        percMaster = 0.5f;
 
-    CWindow* pWindow = nullptr;
+    PHLWINDOWREF pWindow;
 
-    Vector2D position;
-    Vector2D size;
+    Vector2D     position;
+    Vector2D     size;
 
-    float    percSize = 1.f; // size multiplier for resizing children
+    float        percSize = 1.f; // size multiplier for resizing children
 
-    int      workspaceID = -1;
+    int          workspaceID = -1;
 
-    bool     ignoreFullscreenChecks = false;
+    bool         ignoreFullscreenChecks = false;
 
     //
     bool operator==(const SMasterNodeData& rhs) const {
-        return pWindow == rhs.pWindow;
+        return pWindow.lock() == rhs.pWindow.lock();
     }
 };
 
@@ -51,21 +52,21 @@ struct SMasterWorkspaceData {
 
 class CHyprMasterLayout : public IHyprLayout {
   public:
-    virtual void                     onWindowCreatedTiling(CWindow*, eDirection direction = DIRECTION_DEFAULT);
-    virtual void                     onWindowRemovedTiling(CWindow*);
-    virtual bool                     isWindowTiled(CWindow*);
+    virtual void                     onWindowCreatedTiling(PHLWINDOW, eDirection direction = DIRECTION_DEFAULT);
+    virtual void                     onWindowRemovedTiling(PHLWINDOW);
+    virtual bool                     isWindowTiled(PHLWINDOW);
     virtual void                     recalculateMonitor(const int&);
-    virtual void                     recalculateWindow(CWindow*);
-    virtual void                     resizeActiveWindow(const Vector2D&, eRectCorner corner = CORNER_NONE, CWindow* pWindow = nullptr);
-    virtual void                     fullscreenRequestForWindow(CWindow*, eFullscreenMode, bool);
+    virtual void                     recalculateWindow(PHLWINDOW);
+    virtual void                     resizeActiveWindow(const Vector2D&, eRectCorner corner = CORNER_NONE, PHLWINDOW pWindow = nullptr);
+    virtual void                     fullscreenRequestForWindow(PHLWINDOW, eFullscreenMode, bool);
     virtual std::any                 layoutMessage(SLayoutMessageHeader, std::string);
-    virtual SWindowRenderLayoutHints requestRenderHints(CWindow*);
-    virtual void                     switchWindows(CWindow*, CWindow*);
-    virtual void                     moveWindowTo(CWindow*, const std::string& dir);
-    virtual void                     alterSplitRatio(CWindow*, float, bool);
+    virtual SWindowRenderLayoutHints requestRenderHints(PHLWINDOW);
+    virtual void                     switchWindows(PHLWINDOW, PHLWINDOW);
+    virtual void                     moveWindowTo(PHLWINDOW, const std::string& dir, bool silent);
+    virtual void                     alterSplitRatio(PHLWINDOW, float, bool);
     virtual std::string              getLayoutName();
-    virtual void                     replaceWindowDataWith(CWindow* from, CWindow* to);
-    virtual Vector2D                 predictSizeForNewWindow();
+    virtual void                     replaceWindowDataWith(PHLWINDOW from, PHLWINDOW to);
+    virtual Vector2D                 predictSizeForNewWindowTiled();
 
     virtual void                     onEnable();
     virtual void                     onDisable();
@@ -79,13 +80,14 @@ class CHyprMasterLayout : public IHyprLayout {
     void                              buildOrientationCycleVectorFromVars(std::vector<eOrientation>& cycle, CVarList& vars);
     void                              buildOrientationCycleVectorFromEOperation(std::vector<eOrientation>& cycle);
     void                              runOrientationCycle(SLayoutMessageHeader& header, CVarList* vars, int next);
+    eOrientation                      getDynamicOrientation(PHLWORKSPACE);
     int                               getNodesOnWorkspace(const int&);
     void                              applyNodeDataToWindow(SMasterNodeData*);
-    SMasterNodeData*                  getNodeFromWindow(CWindow*);
+    SMasterNodeData*                  getNodeFromWindow(PHLWINDOW);
     SMasterNodeData*                  getMasterNodeOnWorkspace(const int&);
     SMasterWorkspaceData*             getMasterWorkspaceData(const int&);
-    void                              calculateWorkspace(const int&);
-    CWindow*                          getNextWindow(CWindow*, bool);
+    void                              calculateWorkspace(PHLWORKSPACE);
+    PHLWINDOW                         getNextWindow(PHLWINDOW, bool);
     int                               getMastersOnWorkspace(const int&);
 
     friend struct SMasterNodeData;
@@ -102,8 +104,8 @@ struct std::formatter<SMasterNodeData*, CharT> : std::formatter<CharT> {
         std::format_to(out, "[Node {:x}: workspace: {}, pos: {:j2}, size: {:j2}", (uintptr_t)node, node->workspaceID, node->position, node->size);
         if (node->isMaster)
             std::format_to(out, ", master");
-        if (node->pWindow)
-            std::format_to(out, ", window: {:x}", node->pWindow);
+        if (!node->pWindow.expired())
+            std::format_to(out, ", window: {:x}", node->pWindow.lock());
         return std::format_to(out, "]");
     }
 };

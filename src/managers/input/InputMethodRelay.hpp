@@ -3,52 +3,60 @@
 #include <list>
 #include "../../defines.hpp"
 #include "../../helpers/WLClasses.hpp"
+#include "../../helpers/signal/Listener.hpp"
+#include "TextInput.hpp"
+#include "InputMethodPopup.hpp"
+#include <any>
 
 class CInputManager;
+class CHyprRenderer;
 struct STextInputV1;
+class CInputMethodV2;
 
 class CInputMethodRelay {
   public:
     CInputMethodRelay();
 
-    void                 onNewIME(wlr_input_method_v2*);
-    void                 onNewTextInput(wlr_text_input_v3*);
+    void               onNewIME(SP<CInputMethodV2>);
+    void               onNewTextInput(std::any tiv3);
+    void               onNewTextInput(STextInputV1* pTIV1);
 
-    wlr_input_method_v2* m_pWLRIME = nullptr;
+    void               activateIME(CTextInput* pInput);
+    void               deactivateIME(CTextInput* pInput);
+    void               commitIMEState(CTextInput* pInput);
+    void               removeTextInput(CTextInput* pInput);
 
-    void                 commitIMEState(STextInput* pInput);
-    void                 removeTextInput(STextInput* pInput);
+    void               onKeyboardFocus(wlr_surface*);
 
-    void                 onKeyboardFocus(wlr_surface*);
+    CTextInput*        getFocusedTextInput();
 
-    STextInput*          getFocusedTextInput();
-    STextInput*          getFocusableTextInput();
+    void               setIMEPopupFocus(CInputPopup*, wlr_surface*);
+    void               removePopup(CInputPopup*);
 
-    void                 setPendingSurface(STextInput*, wlr_surface*);
+    CInputPopup*       popupFromCoords(const Vector2D& point);
+    CInputPopup*       popupFromSurface(const wlr_surface* surface);
 
-    SIMEKbGrab*          getIMEKeyboardGrab(SKeyboard*);
+    void               updateAllPopups();
 
-    void                 setIMEPopupFocus(SIMEPopup*, wlr_surface*);
-    void                 updateInputPopup(SIMEPopup*);
-    void                 damagePopup(SIMEPopup*);
-    void                 removePopup(SIMEPopup*);
+    WP<CInputMethodV2> m_pIME;
 
   private:
-    std::unique_ptr<SIMEKbGrab> m_pKeyboardGrab;
+    std::vector<std::unique_ptr<CTextInput>>  m_vTextInputs;
+    std::vector<std::unique_ptr<CInputPopup>> m_vIMEPopups;
 
-    std::list<STextInput>       m_lTextInputs;
-    std::list<SIMEPopup>        m_lIMEPopups;
+    wlr_surface*                              m_pLastKbFocus = nullptr;
 
-    DYNLISTENER(textInputNew);
-    DYNLISTENER(IMECommit);
-    DYNLISTENER(IMEDestroy);
-    DYNLISTENER(IMEGrab);
-    DYNLISTENER(IMENewPopup);
-
-    void         createNewTextInput(wlr_text_input_v3*, STextInputV1* tiv1 = nullptr);
-    wlr_surface* focusedSurface(STextInput* pInput);
+    struct {
+        CHyprSignalListener newTIV3;
+        CHyprSignalListener newIME;
+        CHyprSignalListener commitIME;
+        CHyprSignalListener destroyIME;
+        CHyprSignalListener newPopup;
+    } listeners;
 
     friend class CHyprRenderer;
     friend class CInputManager;
     friend class CTextInputV1ProtocolManager;
+    friend struct CTextInput;
+    friend class CHyprRenderer;
 };

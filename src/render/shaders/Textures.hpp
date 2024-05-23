@@ -80,6 +80,17 @@ void main() {
     v_texcoord = texcoord;
 })#";
 
+inline const std::string TEXVERTSRC320 = R"#(#version 320 es
+uniform mat3 proj;
+in vec2 pos;
+in vec2 texcoord;
+out vec2 v_texcoord;
+
+void main() {
+    gl_Position = vec4(proj * vec3(pos, 1.0), 1.0);
+    v_texcoord = texcoord;
+})#";
+
 inline const std::string TEXFRAGSRCRGBA = R"#(
 precision highp float;
 varying vec2 v_texcoord; // is in 0-1
@@ -389,7 +400,9 @@ uniform float     noise;
 uniform float     brightness;
 
 float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+    vec3 p3 = fract(vec3(p.xyx) * 1689.1984);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
 void main() {

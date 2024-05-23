@@ -10,8 +10,18 @@
 #include "Timer.hpp"
 #include "Region.hpp"
 #include <optional>
+#include "signal/Signal.hpp"
+
+// Enum for the different types of auto directions, e.g. auto-left, auto-up.
+enum class eAutoDirs {
+    DIR_AUTO_UP,
+    DIR_AUTO_DOWN,
+    DIR_AUTO_LEFT,
+    DIR_AUTO_RIGHT
+};
 
 struct SMonitorRule {
+    eAutoDirs           autoDir;
     std::string         name        = "";
     Vector2D            resolution  = Vector2D(1280, 720);
     Vector2D            offset      = Vector2D(0, 0);
@@ -57,10 +67,11 @@ class CMonitor {
 
     bool            primary = false;
 
-    uint64_t        ID              = -1;
-    int             activeWorkspace = -1;
-    float           setScale        = 1; // scale set by cfg
-    float           scale           = 1; // real scale
+    uint64_t        ID                     = -1;
+    PHLWORKSPACE    activeWorkspace        = nullptr;
+    PHLWORKSPACE    activeSpecialWorkspace = nullptr;
+    float           setScale               = 1; // scale set by cfg
+    float           scale                  = 1; // real scale
 
     std::string     szName             = "";
     std::string     szDescription      = "";
@@ -82,10 +93,10 @@ class CMonitor {
     bool                    noFrameSchedule = false;
     bool                    scheduledRecalc = false;
     wl_output_transform     transform       = WL_OUTPUT_TRANSFORM_NORMAL;
-    bool                    gammaChanged    = false;
     float                   xwaylandScale   = 1.f;
     std::array<float, 9>    projMatrix      = {0};
     std::optional<Vector2D> forceSize;
+    wlr_output_mode*        currentMode = nullptr;
 
     bool                    dpmsStatus       = true;
     bool                    vrrActive        = false; // this can be TRUE even if VRR is not active in the case that this display does not support it.
@@ -103,12 +114,14 @@ class CMonitor {
 
     SMonitorRule            activeMonitorRule;
 
+    WP<CMonitor>            self;
+
     // mirroring
     CMonitor*              pMirrorOf = nullptr;
     std::vector<CMonitor*> mirrors;
 
     // for tearing
-    CWindow* solitaryClient = nullptr;
+    PHLWINDOWREF solitaryClient;
 
     struct {
         bool canTear         = false;
@@ -119,10 +132,15 @@ class CMonitor {
         bool frameScheduledWhileBusy = false;
     } tearingState;
 
-    // for the special workspace. 0 means not open.
-    int                                                        specialWorkspaceID = 0;
+    struct {
+        CSignal destroy;
+        CSignal connect;
+        CSignal disconnect;
+        CSignal dpmsChanged;
+        CSignal modeChanged;
+    } events;
 
-    std::array<std::vector<std::unique_ptr<SLayerSurface>>, 4> m_aLayerSurfaceLayers;
+    std::array<std::vector<PHLLSREF>, 4> m_aLayerSurfaceLayers;
 
     DYNLISTENER(monitorFrame);
     DYNLISTENER(monitorDestroy);
@@ -131,6 +149,7 @@ class CMonitor {
     DYNLISTENER(monitorNeedsFrame);
     DYNLISTENER(monitorCommit);
     DYNLISTENER(monitorBind);
+    DYNLISTENER(monitorPresented);
 
     // methods
     void     onConnect(bool noRule);
@@ -142,13 +161,17 @@ class CMonitor {
     bool     isMirror();
     bool     matchesStaticSelector(const std::string& selector) const;
     float    getDefaultScale();
-    void     changeWorkspace(CWorkspace* const pWorkspace, bool internal = false, bool noMouseMove = false, bool noFocus = false);
+    void     changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal = false, bool noMouseMove = false, bool noFocus = false);
     void     changeWorkspace(const int& id, bool internal = false, bool noMouseMove = false, bool noFocus = false);
-    void     setSpecialWorkspace(CWorkspace* const pWorkspace);
+    void     setSpecialWorkspace(const PHLWORKSPACE& pWorkspace);
     void     setSpecialWorkspace(const int& id);
     void     moveTo(const Vector2D& pos);
     Vector2D middle();
     void     updateMatrix();
+    int64_t  activeWorkspaceID();
+    int64_t  activeSpecialWorkspaceID();
+    CBox     logicalBox();
+    void     updateGlobal();
 
     bool     m_bEnabled             = false;
     bool     m_bRenderingInitPassed = false;

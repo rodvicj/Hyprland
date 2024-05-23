@@ -10,7 +10,6 @@
 [![Badge Pull Requests]][Pull Requests] 
 [![Badge Issues]][Issues] 
 ![Badge Hi Mom]<br>
-[![Badge Discord]][Discord]
 
 <br>
 
@@ -45,11 +44,11 @@ easy IPC, much more QoL stuff than other wlr-based compositors and more...
 - Tearing support for better gaming performance
 - Easily expandable and readable codebase
 - Fast and active development
-- Not scared to provide bleeding-edge features
+- Not afraid to provide bleeding-edge features
 - Config reloaded instantly upon saving
 - Fully dynamic workspaces
 - Two built-in layouts and more available as plugins
-- Closely follows `wlroots-git`
+- Uses forked wlroots with QoL patches
 - Global keybinds passed to your apps of choice
 - Tiling/pseudotiling/floating/fullscreen windows
 - Special workspaces (scratchpads)
@@ -103,7 +102,6 @@ easy IPC, much more QoL stuff than other wlr-based compositors and more...
 <!----------------------------------------------------------------------------->
 
 [Configure]: https://wiki.hyprland.org/Configuring/Configuring-Hyprland/
-[Discord]: https://discord.gg/hQ9XvMUjjr
 [Stars]: https://starchart.cc/hyprwm/Hyprland
 [Hypr]: https://github.com/hyprwm/Hypr
 
@@ -130,7 +128,7 @@ easy IPC, much more QoL stuff than other wlr-based compositors and more...
 
 [Stars Preview]: https://starchart.cc/vaxerski/Hyprland.svg
 [Preview A]: https://i.ibb.co/C1yTb0r/falf.png
-[Preview B]: https://cdn.discordapp.com/attachments/1091569872535814185/1107675866101723277/screenshot-summer.png
+[Preview B]: https://linfindel.github.io/cdn/hyprland-preview-b.png
 [Preview C]: https://i.ibb.co/B3GJg28/20221126-20h53m26s-grim.png
 
 
@@ -138,7 +136,6 @@ easy IPC, much more QoL stuff than other wlr-based compositors and more...
 
 [Badge Workflow]: https://github.com/hyprwm/Hyprland/actions/workflows/ci.yaml/badge.svg
 
-[Badge Discord]: https://img.shields.io/badge/Join%20the-Discord%20server-6666ff
 [Badge Issues]: https://img.shields.io/github/issues/hyprwm/Hyprland
 [Badge Pull Requests]: https://img.shields.io/github/issues-pr/hyprwm/Hyprland
 [Badge Language]: https://img.shields.io/github/languages/top/hyprwm/Hyprland

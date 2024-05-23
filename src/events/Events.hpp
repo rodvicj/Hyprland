@@ -17,14 +17,6 @@ namespace Events {
 
     // Layer events
     LISTENER(newLayerSurface);
-    DYNLISTENFUNC(destroyLayerSurface);
-    DYNLISTENFUNC(mapLayerSurface);
-    DYNLISTENFUNC(unmapLayerSurface);
-    DYNLISTENFUNC(commitLayerSurface);
-
-    // Surface XDG (window)
-    LISTENER(newXDGToplevel);
-    LISTENER(activateXDG);
 
     // Window events
     DYNLISTENFUNC(commitWindow);
@@ -45,36 +37,14 @@ namespace Events {
     DYNLISTENFUNC(dissociateX11);
     DYNLISTENFUNC(ackConfigure);
 
-    // Window subsurfaces
-    // LISTENER(newSubsurfaceWindow);
-
-    // Input events
-    LISTENER(mouseMove);
-    LISTENER(mouseMoveAbsolute);
-    LISTENER(mouseButton);
-    LISTENER(mouseAxis);
-    LISTENER(mouseFrame);
-
     LISTENER(newInput);
 
     // Virt Ptr
     LISTENER(newVirtPtr);
-    DYNLISTENFUNC(destroyMouse);
-
-    DYNLISTENFUNC(keyboardKey);
-    DYNLISTENFUNC(keyboardMod);
-    DYNLISTENFUNC(keyboardDestroy);
-
-    LISTENER(newConstraint);
 
     // Various
-    LISTENER(requestMouse);
     LISTENER(requestSetSel);
     LISTENER(requestSetPrimarySel);
-
-    // outputMgr
-    LISTENER(outputMgrApply);
-    LISTENER(outputMgrTest);
 
     // Monitor part 2 the sequel
     DYNLISTENFUNC(monitorFrame);
@@ -89,70 +59,12 @@ namespace Events {
     LISTENER(readyXWayland);
     LISTENER(surfaceXWayland);
 
-    // Drag & Drop
-    LISTENER(requestDrag);
-    LISTENER(startDrag);
-    DYNLISTENFUNC(destroyDrag);
-
-    DYNLISTENFUNC(mapDragIcon);
-    DYNLISTENFUNC(unmapDragIcon);
-    DYNLISTENFUNC(destroyDragIcon);
-    DYNLISTENFUNC(commitDragIcon);
-
-    // Deco XDG
-    LISTENER(NewXDGDeco);
-
     // Renderer destroy
     LISTENER(RendererDestroy);
-
-    LISTENER(newIdleInhibitor);
 
     // session
     LISTENER(sessionActive);
 
-    // Touchpad shit
-    LISTENER(swipeBegin);
-    LISTENER(swipeEnd);
-    LISTENER(swipeUpdate);
-    LISTENER(pinchBegin);
-    LISTENER(pinchUpdate);
-    LISTENER(pinchEnd);
-
-    // Power
-    LISTENER(powerMgrSetMode);
-
-    // IME
-    LISTENER(newIME);
-    LISTENER(newTextInput);
-    LISTENER(newVirtualKeyboard);
-
-    // IME Popups
-    DYNLISTENFUNC(mapInputPopup);
-    DYNLISTENFUNC(unmapInputPopup);
-    DYNLISTENFUNC(commitInputPopup);
-    DYNLISTENFUNC(destroyInputPopup);
-
-    // Touch
-    LISTENER(touchBegin);
-    LISTENER(touchEnd);
-    LISTENER(touchUpdate);
-    LISTENER(touchFrame);
-
-    LISTENER(holdBegin);
-    LISTENER(holdEnd);
-
     // Session Lock
     LISTENER(newSessionLock);
-
-    // Gamma control
-    LISTENER(setGamma);
-
-    // Cursor shape
-    LISTENER(setCursorShape);
-
-    // Tearing hints
-    LISTENER(newTearingHint);
-
-    // Shortcut inhibitor
-    LISTENER(newShortcutInhibitor);
 };

@@ -16,56 +16,43 @@
 //                                                           //
 // --------------------------------------------------------- //
 
-void Events::listener_change(wl_listener* listener, void* data) {
-    // layout got changed, let's update monitors.
-    const auto CONFIG = wlr_output_configuration_v1_create();
+static void checkDefaultCursorWarp(SP<CMonitor> PNEWMONITOR, std::string monitorName) {
 
-    if (!CONFIG)
-        return;
+    static auto PCURSORMONITOR    = CConfigValue<std::string>("cursor:default_monitor");
+    static auto firstMonitorAdded = std::chrono::system_clock::now();
+    static bool cursorDefaultDone = false;
+    static bool firstLaunch       = true;
 
-    for (auto& m : g_pCompositor->m_vRealMonitors) {
-        if (!m->output)
-            continue;
+    const auto  POS = PNEWMONITOR->middle();
 
-        if (g_pCompositor->m_pUnsafeOutput == m.get())
-            continue;
-
-        const auto CONFIGHEAD = wlr_output_configuration_head_v1_create(CONFIG, m->output);
-
-        CBox       BOX;
-        wlr_output_layout_get_box(g_pCompositor->m_sWLROutputLayout, m->output, BOX.pWlr());
-        BOX.applyFromWlr();
-
-        //m->vecSize.x = BOX.width;
-        // m->vecSize.y = BOX.height;
-        m->vecPosition.x = BOX.x;
-        m->vecPosition.y = BOX.y;
-
-        CONFIGHEAD->state.enabled = m->output->enabled;
-        CONFIGHEAD->state.mode    = m->output->current_mode;
-        if (!m->output->current_mode) {
-            CONFIGHEAD->state.custom_mode = {
-                m->output->width,
-                m->output->height,
-                m->output->refresh,
-            };
-        }
-        CONFIGHEAD->state.x                     = m->vecPosition.x;
-        CONFIGHEAD->state.y                     = m->vecPosition.y;
-        CONFIGHEAD->state.transform             = m->transform;
-        CONFIGHEAD->state.scale                 = m->scale;
-        CONFIGHEAD->state.adaptive_sync_enabled = m->vrrActive;
+    // by default, cursor should be set to first monitor detected
+    // this is needed as a default if the monitor given in config above doesn't exist
+    if (firstLaunch) {
+        firstLaunch = false;
+        g_pCompositor->warpCursorTo(POS, true);
+        g_pInputManager->refocus();
     }
 
-    wlr_output_manager_v1_set_configuration(g_pCompositor->m_sWLROutputMgr, CONFIG);
+    if (cursorDefaultDone || *PCURSORMONITOR == STRVAL_EMPTY)
+        return;
+
+    // after 10s, don't set cursor to default monitor
+    auto timePassedSec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - firstMonitorAdded);
+    if (timePassedSec.count() > 10) {
+        cursorDefaultDone = true;
+        return;
+    }
+
+    if (*PCURSORMONITOR == monitorName) {
+        cursorDefaultDone = true;
+        g_pCompositor->warpCursorTo(POS, true);
+        g_pInputManager->refocus();
+    }
 }
 
 void Events::listener_newOutput(wl_listener* listener, void* data) {
     // new monitor added, let's accommodate for that.
     const auto OUTPUT = (wlr_output*)data;
-
-    // for warping the cursor on launch
-    static bool firstLaunch = true;
 
     if (!OUTPUT->name) {
         Debug::log(ERR, "New monitor has no name?? Ignoring");
@@ -73,17 +60,17 @@ void Events::listener_newOutput(wl_listener* listener, void* data) {
     }
 
     // add it to real
-    std::shared_ptr<CMonitor>* PNEWMONITORWRAP = nullptr;
-
-    PNEWMONITORWRAP = &g_pCompositor->m_vRealMonitors.emplace_back(std::make_shared<CMonitor>());
+    auto PNEWMONITOR = g_pCompositor->m_vRealMonitors.emplace_back(makeShared<CMonitor>());
     if (std::string("HEADLESS-1") == OUTPUT->name)
-        g_pCompositor->m_pUnsafeOutput = PNEWMONITORWRAP->get();
+        g_pCompositor->m_pUnsafeOutput = PNEWMONITOR.get();
 
-    (*PNEWMONITORWRAP)->output    = OUTPUT;
+    PNEWMONITOR->output           = OUTPUT;
+    PNEWMONITOR->self             = PNEWMONITOR;
     const bool FALLBACK           = g_pCompositor->m_pUnsafeOutput ? OUTPUT == g_pCompositor->m_pUnsafeOutput->output : false;
-    (*PNEWMONITORWRAP)->ID        = FALLBACK ? -1 : g_pCompositor->getNextAvailableMonitorID(OUTPUT->name);
-    const auto PNEWMONITOR        = PNEWMONITORWRAP->get();
+    PNEWMONITOR->ID               = FALLBACK ? -1 : g_pCompositor->getNextAvailableMonitorID(OUTPUT->name);
     PNEWMONITOR->isUnsafeFallback = FALLBACK;
+
+    EMIT_HOOK_EVENT("newMonitor", PNEWMONITOR);
 
     if (!FALLBACK)
         PNEWMONITOR->onConnect(false);
@@ -94,29 +81,31 @@ void Events::listener_newOutput(wl_listener* listener, void* data) {
     // ready to process if we have a real monitor
 
     if ((!g_pHyprRenderer->m_pMostHzMonitor || PNEWMONITOR->refreshRate > g_pHyprRenderer->m_pMostHzMonitor->refreshRate) && PNEWMONITOR->m_bEnabled)
-        g_pHyprRenderer->m_pMostHzMonitor = PNEWMONITOR;
+        g_pHyprRenderer->m_pMostHzMonitor = PNEWMONITOR.get();
 
     g_pCompositor->m_bReadyToProcess = true;
 
     g_pConfigManager->m_bWantsMonitorReload = true;
-    g_pCompositor->scheduleFrameForMonitor(PNEWMONITOR);
+    g_pCompositor->scheduleFrameForMonitor(PNEWMONITOR.get());
 
-    if (firstLaunch) {
-        firstLaunch    = false;
-        const auto POS = PNEWMONITOR->middle();
-        if (g_pCompositor->m_sSeat.mouse)
-            wlr_cursor_warp(g_pCompositor->m_sWLRCursor, g_pCompositor->m_sSeat.mouse->mouse, POS.x, POS.y);
-    } else {
-        for (auto& w : g_pCompositor->m_vWindows) {
-            if (w->m_iMonitorID == PNEWMONITOR->ID) {
-                w->m_iLastSurfaceMonitorID = -1;
-                w->updateSurfaceScaleTransformDetails();
-            }
+    checkDefaultCursorWarp(PNEWMONITOR, OUTPUT->name);
+
+    for (auto& w : g_pCompositor->m_vWindows) {
+        if (w->m_iMonitorID == PNEWMONITOR->ID) {
+            w->m_iLastSurfaceMonitorID = -1;
+            w->updateSurfaceScaleTransformDetails();
         }
     }
 }
 
 void Events::listener_monitorFrame(void* owner, void* data) {
+    if (g_pCompositor->m_bExitTriggered) {
+        // Only signal cleanup once
+        g_pCompositor->m_bExitTriggered = false;
+        g_pCompositor->cleanup();
+        return;
+    }
+
     CMonitor* const PMONITOR = (CMonitor*)owner;
 
     if ((g_pCompositor->m_sWLRSession && !g_pCompositor->m_sWLRSession->active) || !g_pCompositor->m_bSessionActive || g_pCompositor->m_bUnsafeState) {
@@ -139,7 +128,7 @@ void Events::listener_monitorFrame(void* owner, void* data) {
 
     PMONITOR->tearingState.busy = false;
 
-    if (PMONITOR->tearingState.activelyTearing && PMONITOR->solitaryClient /* can be invalidated by a recheck */) {
+    if (PMONITOR->tearingState.activelyTearing && PMONITOR->solitaryClient.lock() /* can be invalidated by a recheck */) {
 
         if (!PMONITOR->tearingState.frameScheduledWhileBusy)
             return; // we did not schedule a frame yet to be displayed, but we are tearing. Why render?
@@ -206,7 +195,7 @@ void Events::listener_monitorDestroy(void* owner, void* data) {
 
     Debug::log(LOG, "Removing monitor {} from realMonitors", pMonitor->szName);
 
-    std::erase_if(g_pCompositor->m_vRealMonitors, [&](std::shared_ptr<CMonitor>& el) { return el.get() == pMonitor; });
+    std::erase_if(g_pCompositor->m_vRealMonitors, [&](SP<CMonitor>& el) { return el.get() == pMonitor; });
 }
 
 void Events::listener_monitorStateRequest(void* owner, void* data) {

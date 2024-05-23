@@ -5,8 +5,10 @@
 #include <unordered_map>
 #include "../helpers/AnimatedVariable.hpp"
 #include "../helpers/BezierCurve.hpp"
-#include "../Window.hpp"
 #include "../helpers/Timer.hpp"
+#include "eventLoop/EventLoopTimer.hpp"
+
+class CWindow;
 
 class CAnimationManager {
   public:
@@ -19,7 +21,7 @@ class CAnimationManager {
     void                                          addBezierWithName(std::string, const Vector2D&, const Vector2D&);
     void                                          removeAllBeziers();
 
-    void                                          onWindowPostCreateClose(CWindow*, bool close = false);
+    void                                          onWindowPostCreateClose(PHLWINDOW, bool close = false);
 
     bool                                          bezierExists(const std::string&);
     CBezierCurve*                                 getBezier(const std::string&);
@@ -31,7 +33,7 @@ class CAnimationManager {
     std::vector<CBaseAnimatedVariable*>           m_vAnimatedVariables;
     std::vector<CBaseAnimatedVariable*>           m_vActiveAnimatedVariables;
 
-    wl_event_source*                              m_pAnimationTick;
+    SP<CEventLoopTimer>                           m_pAnimationTimer;
 
     float                                         m_fLastTickTime; // in ms
 
@@ -48,8 +50,8 @@ class CAnimationManager {
     bool                                          m_bTickScheduled = false;
 
     // Anim stuff
-    void animationPopin(CWindow*, bool close = false, float minPerc = 0.f);
-    void animationSlide(CWindow*, std::string force = "", bool close = false);
+    void animationPopin(PHLWINDOW, bool close = false, float minPerc = 0.f);
+    void animationSlide(PHLWINDOW, std::string force = "", bool close = false);
 };
 
 inline std::unique_ptr<CAnimationManager> g_pAnimationManager;

@@ -7,6 +7,7 @@
 #include "../helpers/Region.hpp"
 #include <list>
 #include <unordered_map>
+#include <map>
 
 #include <cairo/cairo.h>
 
@@ -47,6 +48,10 @@ struct SRenderModifData {
     std::vector<std::pair<eRenderModifType, std::any>> modifs;
 
     void                                               applyToBox(CBox& box);
+    void                                               applyToRegion(CRegion& rg);
+    float                                              combinedScale();
+
+    bool                                               enabled = true;
 };
 
 struct SGLPixelFormat {
@@ -63,7 +68,7 @@ struct SMonitorRenderData {
     CFramebuffer mirrorSwapFB; // etc
     CFramebuffer offMainFB;
 
-    CFramebuffer monitorMirrorFB; // used for mirroring outputs
+    CFramebuffer monitorMirrorFB; // used for mirroring outputs, does not contain artifacts like offloadFB
 
     CTexture     stencilTex;
 
@@ -90,32 +95,35 @@ struct SMonitorRenderData {
 };
 
 struct SCurrentRenderData {
-    CMonitor*           pMonitor   = nullptr;
-    CWorkspace*         pWorkspace = nullptr;
-    float               projection[9];
-    float               savedProjection[9];
+    CMonitor*            pMonitor   = nullptr;
+    PHLWORKSPACE         pWorkspace = nullptr;
+    float                projection[9];
+    float                savedProjection[9];
+    std::array<float, 9> monitorProjection;
 
-    SMonitorRenderData* pCurrentMonData = nullptr;
-    CFramebuffer*       currentFB       = nullptr; // current rendering to
-    CFramebuffer*       mainFB          = nullptr; // main to render to
-    CFramebuffer*       outFB           = nullptr; // out to render to (if offloaded, etc)
+    SMonitorRenderData*  pCurrentMonData = nullptr;
+    CFramebuffer*        currentFB       = nullptr; // current rendering to
+    CFramebuffer*        mainFB          = nullptr; // main to render to
+    CFramebuffer*        outFB           = nullptr; // out to render to (if offloaded, etc)
 
-    CRegion             damage;
-    CRegion             finalDamage; // damage used for funal off -> main
+    CRegion              damage;
+    CRegion              finalDamage; // damage used for funal off -> main
 
-    SRenderModifData    renderModif;
-    float               mouseZoomFactor    = 1.f;
-    bool                mouseZoomUseMouse  = true; // true by default
-    bool                useNearestNeighbor = false;
-    bool                forceIntrospection = false; // cleaned in ::end()
+    SRenderModifData     renderModif;
+    float                mouseZoomFactor    = 1.f;
+    bool                 mouseZoomUseMouse  = true; // true by default
+    bool                 useNearestNeighbor = false;
+    bool                 forceIntrospection = false; // cleaned in ::end()
+    bool                 blockScreenShader  = false;
+    bool                 simplePass         = false;
 
-    Vector2D            primarySurfaceUVTopLeft     = Vector2D(-1, -1);
-    Vector2D            primarySurfaceUVBottomRight = Vector2D(-1, -1);
+    Vector2D             primarySurfaceUVTopLeft     = Vector2D(-1, -1);
+    Vector2D             primarySurfaceUVBottomRight = Vector2D(-1, -1);
 
-    CBox                clipBox = {}; // scaled coordinates
+    CBox                 clipBox = {}; // scaled coordinates
 
-    uint32_t            discardMode    = DISCARD_OPAQUE;
-    float               discardOpacity = 0.f;
+    uint32_t             discardMode    = DISCARD_OPAQUE;
+    float                discardOpacity = 0.f;
 };
 
 class CGradientValueData;
@@ -125,19 +133,23 @@ class CHyprOpenGLImpl {
     CHyprOpenGLImpl();
 
     void                  begin(CMonitor*, const CRegion& damage, CFramebuffer* fb = nullptr, std::optional<CRegion> finalDamage = {});
+    void                  beginSimple(CMonitor*, const CRegion& damage, CRenderbuffer* rb = nullptr, CFramebuffer* fb = nullptr);
     void                  end();
 
     void                  renderRect(CBox*, const CColor&, int round = 0);
     void                  renderRectWithBlur(CBox*, const CColor&, int round = 0, float blurA = 1.f, bool xray = false);
     void                  renderRectWithDamage(CBox*, const CColor&, CRegion* damage, int round = 0);
     void                  renderTexture(wlr_texture*, CBox*, float a, int round = 0, bool allowCustomUV = false);
+    void                  renderTextureWithDamage(wlr_texture*, CBox*, CRegion* damage, float a, int round = 0, bool allowCustomUV = false);
     void                  renderTexture(const CTexture&, CBox*, float a, int round = 0, bool discardActive = false, bool allowCustomUV = false);
+    void                  renderTextureWithDamage(const CTexture&, CBox*, CRegion* damage, float a, int round = 0, bool discardActive = false, bool allowCustomUV = false);
     void                  renderTextureWithBlur(const CTexture&, CBox*, float a, wlr_surface* pSurface, int round = 0, bool blockBlurOptimization = false, float blurA = 1.f);
     void                  renderRoundedShadow(CBox*, int round, int range, const CColor& color, float a = 1.0);
     void                  renderBorder(CBox*, const CGradientValueData&, int round, int borderSize, float a = 1.0, int outerRound = -1 /* use round */);
     void                  renderTextureMatte(const CTexture& tex, CBox* pBox, CFramebuffer& matte);
 
     void                  setMonitorTransformEnabled(bool enabled);
+    void                  setRenderModifEnabled(bool enabled);
 
     void                  saveMatrix();
     void                  setMatrixScaleTranslate(const Vector2D& translate, const float& scale);
@@ -145,12 +157,12 @@ class CHyprOpenGLImpl {
 
     void                  blend(bool enabled);
 
-    void                  makeWindowSnapshot(CWindow*);
-    void                  makeRawWindowSnapshot(CWindow*, CFramebuffer*);
-    void                  makeLayerSnapshot(SLayerSurface*);
-    void                  renderSnapshot(CWindow**);
-    void                  renderSnapshot(SLayerSurface**);
-    bool                  shouldUseNewBlurOptimizations(SLayerSurface* pLayer, CWindow* pWindow);
+    void                  makeWindowSnapshot(PHLWINDOW);
+    void                  makeRawWindowSnapshot(PHLWINDOW, CFramebuffer*);
+    void                  makeLayerSnapshot(PHLLS);
+    void                  renderSnapshot(PHLWINDOW);
+    void                  renderSnapshot(PHLLS);
+    bool                  shouldUseNewBlurOptimizations(PHLLS pLayer, PHLWINDOW pWindow);
 
     void                  clear(const CColor&);
     void                  clearWithTex();
@@ -166,7 +178,7 @@ class CHyprOpenGLImpl {
     bool                  preBlurQueued();
     void                  preRender(CMonitor*);
 
-    void                  saveBufferForMirror();
+    void                  saveBufferForMirror(CBox*);
     void                  renderMirrored();
 
     void                  applyScreenShader(const std::string& path);
@@ -186,11 +198,11 @@ class CHyprOpenGLImpl {
 
     bool                  m_bReloadScreenShader = true; // at launch it can be set
 
-    CWindow*              m_pCurrentWindow = nullptr; // hack to get the current rendered window
-    SLayerSurface*        m_pCurrentLayer  = nullptr; // hack to get the current rendered layer
+    PHLWINDOWREF          m_pCurrentWindow; // hack to get the current rendered window
+    PHLLS                 m_pCurrentLayer;  // hack to get the current rendered layer
 
-    std::unordered_map<CWindow*, CFramebuffer>        m_mWindowFramebuffers;
-    std::unordered_map<SLayerSurface*, CFramebuffer>  m_mLayerFramebuffers;
+    std::map<PHLWINDOWREF, CFramebuffer>              m_mWindowFramebuffers;
+    std::map<PHLLSREF, CFramebuffer>                  m_mLayerFramebuffers;
     std::unordered_map<CMonitor*, SMonitorRenderData> m_mMonitorRenderResources;
     std::unordered_map<CMonitor*, CFramebuffer>       m_mMonitorBGFBs;
 
@@ -219,6 +231,7 @@ class CHyprOpenGLImpl {
     CShader           m_sFinalScreenShader;
     CTimer            m_tGlobalTimer;
 
+    void              logShaderError(const GLuint&, bool program = false);
     GLuint            createProgram(const std::string&, const std::string&, bool dynamic = false);
     GLuint            compileShader(const GLuint&, std::string, bool dynamic = false);
     void              createBGTextureForMonitor(CMonitor*);

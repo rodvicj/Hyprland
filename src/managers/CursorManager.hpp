@@ -9,15 +9,18 @@
 struct wlr_buffer;
 struct wlr_xcursor_manager;
 struct wlr_xwayland;
+class CWLSurface;
 
 class CCursorManager {
   public:
     CCursorManager();
+    ~CCursorManager();
 
     wlr_buffer*      getCursorBuffer();
 
     void             setCursorFromName(const std::string& name);
-    void             setCursorSurface(wlr_surface* surf, const Vector2D& hotspot);
+    void             setCursorSurface(CWLSurface* surf, const Vector2D& hotspot);
+    void             setXCursor(const std::string& name);
 
     void             changeTheme(const std::string& name, const int size);
     void             updateTheme();
@@ -29,13 +32,16 @@ class CCursorManager {
     class CCursorBuffer {
       public:
         CCursorBuffer(cairo_surface_t* surf, const Vector2D& size, const Vector2D& hotspot);
+        CCursorBuffer(uint8_t* pixelData, const Vector2D& size, const Vector2D& hotspot);
         ~CCursorBuffer();
 
         struct SCursorWlrBuffer {
             wlr_buffer       base;
-            cairo_surface_t* surface = nullptr;
-            bool             dropped = false;
-            CCursorBuffer*   parent  = nullptr;
+            cairo_surface_t* surface   = nullptr;
+            bool             dropped   = false;
+            CCursorBuffer*   parent    = nullptr;
+            uint8_t*         pixelData = nullptr;
+            size_t           stride    = 0;
         } wlrBuffer;
 
       private:
@@ -55,7 +61,7 @@ class CCursorManager {
     std::unique_ptr<Hyprcursor::CHyprcursorManager> m_pHyprcursor;
 
     std::string                                     m_szTheme      = "";
-    int                                             m_iSize        = 24;
+    int                                             m_iSize        = 0;
     float                                           m_fCursorScale = 1.0;
 
     Hyprcursor::SCursorStyleInfo                    m_sCurrentStyleInfo;

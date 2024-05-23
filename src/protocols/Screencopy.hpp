@@ -7,6 +7,7 @@
 #include <vector>
 #include "../managers/HookSystemManager.hpp"
 #include "../helpers/Timer.hpp"
+#include "../managers/eventLoop/EventLoopTimer.hpp"
 
 class CMonitor;
 
@@ -20,21 +21,21 @@ class CScreencopyClient {
     CScreencopyClient();
     ~CScreencopyClient();
 
-    int               ref      = 0;
-    wl_resource*      resource = nullptr;
+    int                  ref      = 0;
+    wl_resource*         resource = nullptr;
 
-    eClientOwners     clientOwner = CLIENT_SCREENCOPY;
+    eClientOwners        clientOwner = CLIENT_SCREENCOPY;
 
-    int               frameCounter           = 0;
-    int               framesInLastHalfSecond = 0;
-    CTimer            lastMeasure;
-    CTimer            lastFrame;
-    bool              sentScreencast = false;
+    int                  frameCounter           = 0;
+    int                  framesInLastHalfSecond = 0;
+    CTimer               lastMeasure;
+    CTimer               lastFrame;
+    bool                 sentScreencast = false;
 
-    void              onTick();
-    HOOK_CALLBACK_FN* tickCallback = nullptr;
+    void                 onTick();
+    SP<HOOK_CALLBACK_FN> tickCallback;
 
-    bool              operator==(const CScreencopyClient& other) const {
+    bool                 operator==(const CScreencopyClient& other) const {
         return resource == other.resource;
     }
 };
@@ -48,15 +49,16 @@ struct SScreencopyFrame {
     CBox               box          = {};
     int                shmStride    = 0;
 
-    bool               overlayCursor = false;
-    bool               withDamage    = false;
+    bool               overlayCursor   = false;
+    bool               withDamage      = false;
+    bool               lockedSWCursors = false;
 
     wlr_buffer_cap     bufferCap = WLR_BUFFER_CAP_SHM;
 
     wlr_buffer*        buffer = nullptr;
 
     CMonitor*          pMonitor = nullptr;
-    CWindow*           pWindow  = nullptr;
+    PHLWINDOWREF       pWindow;
 
     bool               operator==(const SScreencopyFrame& other) const {
         return resource == other.resource && client == other.client;
@@ -82,6 +84,9 @@ class CScreencopyProtocolManager {
     wl_global*                     m_pGlobal = nullptr;
     std::list<SScreencopyFrame>    m_lFrames;
     std::list<CScreencopyClient>   m_lClients;
+
+    SP<CEventLoopTimer>            m_pSoftwareCursorTimer;
+    bool                           m_bTimerArmed = false;
 
     wl_listener                    m_liDisplayDestroy;
 

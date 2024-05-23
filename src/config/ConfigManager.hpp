@@ -13,10 +13,11 @@
 #include <optional>
 #include <functional>
 #include <xf86drmMode.h>
-#include "../Window.hpp"
 #include "../helpers/WLClasses.hpp"
 #include "../helpers/Monitor.hpp"
 #include "../helpers/VarList.hpp"
+#include "../desktop/Window.hpp"
+#include "../desktop/LayerSurface.hpp"
 
 #include "defaultConfig.hpp"
 #include "ConfigDataValues.hpp"
@@ -104,15 +105,15 @@ class CConfigManager {
     static std::string                                              getMainConfigPath();
 
     SMonitorRule                                                    getMonitorRuleFor(const CMonitor&);
-    SWorkspaceRule                                                  getWorkspaceRuleFor(CWorkspace*);
+    SWorkspaceRule                                                  getWorkspaceRuleFor(PHLWORKSPACE workspace);
     std::string                                                     getDefaultWorkspaceFor(const std::string&);
 
     CMonitor*                                                       getBoundMonitorForWS(const std::string&);
     std::string                                                     getBoundMonitorStringForWS(const std::string&);
     const std::deque<SWorkspaceRule>&                               getAllWorkspaceRules();
 
-    std::vector<SWindowRule>                                        getMatchingRules(CWindow*, bool dynamic = true, bool shadowExec = false);
-    std::vector<SLayerRule>                                         getMatchingRules(SLayerSurface*);
+    std::vector<SWindowRule>                                        getMatchingRules(PHLWINDOW, bool dynamic = true, bool shadowExec = false);
+    std::vector<SLayerRule>                                         getMatchingRules(PHLLS);
 
     std::unordered_map<std::string, SMonitorAdditionalReservedArea> m_mAdditionalReservedAreas;
 
@@ -126,6 +127,7 @@ class CConfigManager {
     void                      dispatchExecOnce();
 
     void                      performMonitorReload();
+    void                      appendMonitorRule(const SMonitorRule&);
     bool                      m_bWantsMonitorReload = false;
     bool                      m_bForceReload        = false;
     bool                      m_bNoMonitorReload    = false;
@@ -141,6 +143,7 @@ class CConfigManager {
     void                      addExecRule(const SExecRequestedRule&);
 
     void                      handlePluginLoads();
+    std::string               getErrors();
 
     // keywords
     std::optional<std::string> handleRawExec(const std::string&, const std::string&);
@@ -192,6 +195,7 @@ class CConfigManager {
     std::deque<std::string>                                   firstExecRequests;
 
     std::vector<std::pair<std::string, std::string>>          m_vFailedPluginConfigValues; // for plugin values of unloaded plugins
+    std::string                                               m_szConfigErrors = "";
 
     // internal methods
     void                       setAnimForChildren(SAnimationPropertyConfig* const);
@@ -201,6 +205,7 @@ class CConfigManager {
     std::optional<std::string> verifyConfigExists();
     void                       postConfigReload(const Hyprlang::CParseResult& result);
     void                       reload();
+    SWorkspaceRule             mergeWorkspaceRules(const SWorkspaceRule&, const SWorkspaceRule&);
 };
 
 inline std::unique_ptr<CConfigManager> g_pConfigManager;

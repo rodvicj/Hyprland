@@ -32,6 +32,8 @@ enum ePluginLoadStateReturn {
 struct SHyprlandVersion {
     std::string branch;
     std::string hash;
+    std::string date;
+    int         commits = 0;
 };
 
 class CPluginManager {
@@ -54,10 +56,17 @@ class CPluginManager {
 
     void                   notify(const eNotifyIcons icon, uint32_t color, int durationMs, const std::string& message);
 
+    bool                   hasDeps();
+
     bool                   m_bVerbose = false;
+
+    // will delete recursively if exists!!
+    bool createSafeDirectory(const std::string& path);
 
   private:
     std::string headerError(const eHeadersErrors err);
+
+    std::string m_szWorkingPluginDirectory = "";
 };
 
 inline std::unique_ptr<CPluginManager> g_pPluginManager;

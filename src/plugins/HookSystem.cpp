@@ -1,6 +1,8 @@
 #include "HookSystem.hpp"
 #include "../debug/Log.hpp"
 #include "../helpers/VarList.hpp"
+#include "../managers/TokenManager.hpp"
+#include "../Compositor.hpp"
 
 #define register
 #include <udis86.h>
@@ -8,6 +10,9 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cstring>
+#include <fstream>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 CFunctionHook::CFunctionHook(HANDLE owner, void* source, void* destination) {
     m_pSource      = source;
@@ -64,80 +69,71 @@ CFunctionHook::SInstructionProbe CFunctionHook::probeMinimumJumpSize(void* start
 }
 
 CFunctionHook::SAssembly CFunctionHook::fixInstructionProbeRIPCalls(const SInstructionProbe& probe) {
+    SAssembly returns;
+
     // analyze the code and fix what we know how to.
     uint64_t currentAddress = (uint64_t)m_pSource;
     // actually newline + 1
-    size_t      lastAsmNewline = 0;
-    std::string assemblyBuilder;
+    size_t lastAsmNewline = 0;
+    // needle for destination binary
+    size_t            currentDestinationOffset = 0;
+
+    std::vector<char> finalBytes;
+    finalBytes.resize(probe.len);
+
     for (auto& len : probe.insSizes) {
+
+        // copy original bytes to our finalBytes
+        for (size_t i = 0; i < len; ++i) {
+            finalBytes[currentDestinationOffset + i] = *(char*)(currentAddress + i);
+        }
 
         std::string code = probe.assembly.substr(lastAsmNewline, probe.assembly.find("\n", lastAsmNewline) - lastAsmNewline);
         if (code.contains("%rip")) {
-            CVarList       tokens{code, 0, 's'};
-            size_t         plusPresent  = tokens[1][0] == '+' ? 1 : 0;
-            size_t         minusPresent = tokens[1][0] == '-' ? 1 : 0;
-            std::string    addr         = tokens[1].substr((plusPresent || minusPresent), tokens[1].find("(%rip)") - (plusPresent || minusPresent));
-            const uint64_t OFFSET       = (minusPresent ? -1 : 1) * configStringToInt(addr);
+            CVarList      tokens{code, 0, 's'};
+            size_t        plusPresent  = tokens[1][0] == '+' ? 1 : 0;
+            size_t        minusPresent = tokens[1][0] == '-' ? 1 : 0;
+            std::string   addr         = tokens[1].substr((plusPresent || minusPresent), tokens[1].find("(%rip)") - (plusPresent || minusPresent));
+            const int32_t OFFSET       = (minusPresent ? -1 : 1) * configStringToInt(addr);
             if (OFFSET == 0)
                 return {};
             const uint64_t DESTINATION = currentAddress + OFFSET + len;
 
-            if (code.starts_with("mov")) {
-                // mov +0xdeadbeef(%rip), %rax
-                assemblyBuilder += std::format("movabs $0x{:x}, {}\n", DESTINATION, tokens[2]);
-            } else if (code.starts_with("call")) {
-                // call +0xdeadbeef(%rip)
-                assemblyBuilder += std::format("pushq %rax\nmovabs $0x{:x}, %rax\ncallq *%rax\npopq %rax\n", DESTINATION);
-            } else if (code.starts_with("lea")) {
-                // lea 0xdeadbeef(%rip), %rax
-                assemblyBuilder += std::format("movabs $0x{:x}, {}\n", DESTINATION, tokens[2]);
-            } else {
+            auto           ADDREND   = code.find("(%rip)");
+            auto           ADDRSTART = (code.substr(0, ADDREND).find_last_of(' '));
+
+            if (ADDREND == std::string::npos || ADDRSTART == std::string::npos)
                 return {};
-            }
-        } else if (code.contains("invalid")) {
-            std::vector<uint8_t> bytes;
-            bytes.resize(len);
-            memcpy(bytes.data(), (std::byte*)currentAddress, len);
-            if (len == 4 && bytes[0] == 0xF3 && bytes[1] == 0x0F && bytes[2] == 0x1E && bytes[3] == 0xFA) {
-                // F3 0F 1E FA = endbr64, udis doesn't understand that one
-                assemblyBuilder += "endbr64\n";
-            } else {
-                // raise error, unknown op
-                std::string strBytes;
-                for (auto& b : bytes) {
-                    strBytes += std::format("{:x} ", b);
+
+            const uint64_t PREDICTEDRIP = (uint64_t)m_pTrampolineAddr + currentDestinationOffset + len;
+            const int32_t  NEWRIPOFFSET = DESTINATION - PREDICTEDRIP;
+
+            size_t         ripOffset = 0;
+
+            // find %rip usage offset from beginning
+            for (int i = len - 4 /* 32-bit */; i > 0; --i) {
+                if (*(int32_t*)(currentAddress + i) == OFFSET) {
+                    ripOffset = i;
+                    break;
                 }
-                Debug::log(ERR, "[functionhook] unknown bytes: {}", strBytes);
-                return {};
             }
+
+            if (ripOffset == 0)
+                return {};
+
+            // fix offset in the final bytes. This doesn't care about endianness
+            *(int32_t*)&finalBytes[currentDestinationOffset + ripOffset] = NEWRIPOFFSET;
+
+            currentDestinationOffset += len;
         } else {
-            assemblyBuilder += code + "\n";
+            currentDestinationOffset += len;
         }
 
         lastAsmNewline = probe.assembly.find("\n", lastAsmNewline) + 1;
         currentAddress += len;
     }
 
-    std::ofstream ofs("/tmp/hypr/.hookcode.asm", std::ios::trunc);
-    ofs << assemblyBuilder;
-    ofs.close();
-    std::string ret = execAndGet(
-        "cc -x assembler -c /tmp/hypr/.hookcode.asm -o /tmp/hypr/.hookbinary.o 2>&1 && objcopy -O binary -j .text /tmp/hypr/.hookbinary.o /tmp/hypr/.hookbinary2.o 2>&1");
-    Debug::log(LOG, "[functionhook] assembler returned:\n{}", ret);
-    if (!std::filesystem::exists("/tmp/hypr/.hookbinary2.o")) {
-        std::filesystem::remove("/tmp/hypr/.hookcode.asm");
-        std::filesystem::remove("/tmp/hypr/.hookbinary.asm");
-        return {};
-    }
-
-    std::ifstream ifs("/tmp/hypr/.hookbinary2.o", std::ios::binary);
-    SAssembly     returns = {std::vector<char>(std::istreambuf_iterator<char>(ifs), {})};
-    ifs.close();
-    std::filesystem::remove("/tmp/hypr/.hookcode.asm");
-    std::filesystem::remove("/tmp/hypr/.hookbinary.o");
-    std::filesystem::remove("/tmp/hypr/.hookbinary2.o");
-
-    return returns;
+    return {finalBytes};
 }
 
 bool CFunctionHook::hook() {
@@ -158,6 +154,10 @@ bool CFunctionHook::hook() {
     // nop
     static constexpr uint8_t NOP = 0x90;
 
+    // alloc trampoline
+    const auto MAX_TRAMPOLINE_SIZE = HOOK_TRAMPOLINE_MAX_SIZE; // we will never need more.
+    m_pTrampolineAddr              = (void*)g_pFunctionHookSystem->getAddressForTrampo();
+
     // probe instructions to be trampolin'd
     SInstructionProbe probe;
     try {
@@ -174,9 +174,12 @@ bool CFunctionHook::hook() {
     const size_t HOOKSIZE = PROBEFIXEDASM.bytes.size();
     const size_t ORIGSIZE = probe.len;
 
-    // alloc trampoline
-    const auto TRAMPOLINE_SIZE = sizeof(ABSOLUTE_JMP_ADDRESS) + HOOKSIZE + sizeof(PUSH_RAX);
-    m_pTrampolineAddr          = mmap(NULL, TRAMPOLINE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    const auto   TRAMPOLINE_SIZE = sizeof(ABSOLUTE_JMP_ADDRESS) + HOOKSIZE + sizeof(PUSH_RAX);
+
+    if (TRAMPOLINE_SIZE > MAX_TRAMPOLINE_SIZE) {
+        Debug::log(ERR, "[functionhook] failed, not enough space in trampo to alloc:\n{}", probe.assembly);
+        return false;
+    }
 
     m_pOriginalBytes = malloc(ORIGSIZE);
     memcpy(m_pOriginalBytes, m_pSource, ORIGSIZE);
@@ -236,14 +239,11 @@ bool CFunctionHook::unhook() {
     // revert mprot
     mprotect((uint8_t*)m_pSource - ((uint64_t)m_pSource) % sysconf(_SC_PAGE_SIZE), sysconf(_SC_PAGE_SIZE), PROT_READ | PROT_EXEC);
 
-    // unmap
-    munmap(m_pTrampolineAddr, m_iTrampoLen);
-
     // reset vars
     m_bActive         = false;
     m_iHookLen        = 0;
     m_iTrampoLen      = 0;
-    m_pTrampolineAddr = nullptr;
+    m_pTrampolineAddr = nullptr; // no unmapping, it's managed by the HookSystem
     m_pOriginalBytes  = nullptr;
 
     free(m_pOriginalBytes);
@@ -262,4 +262,109 @@ bool CHookSystem::removeHook(CFunctionHook* hook) {
 
 void CHookSystem::removeAllHooksFrom(HANDLE handle) {
     std::erase_if(m_vHooks, [&](const auto& other) { return other->m_pOwner == handle; });
+}
+
+static uintptr_t seekNewPageAddr() {
+    const uint64_t PAGESIZE_VAR = sysconf(_SC_PAGE_SIZE);
+    auto           MAPS         = std::ifstream("/proc/self/maps");
+
+    uint64_t       lastStart = 0, lastEnd = 0;
+
+    std::string    line;
+    while (std::getline(MAPS, line)) {
+        CVarList props{line, 0, 's', true};
+
+        uint64_t start = 0, end = 0;
+        if (props[0].empty()) {
+            Debug::log(WARN, "seekNewPageAddr: unexpected line in self maps");
+            continue;
+        }
+
+        CVarList startEnd{props[0], 0, '-', true};
+
+        try {
+            start = std::stoull(startEnd[0], nullptr, 16);
+            end   = std::stoull(startEnd[1], nullptr, 16);
+        } catch (std::exception& e) {
+            Debug::log(WARN, "seekNewPageAddr: unexpected line in self maps: {}", line);
+            continue;
+        }
+
+        Debug::log(LOG, "seekNewPageAddr: page 0x{:x} - 0x{:x}", start, end);
+
+        if (lastStart == 0) {
+            lastStart = start;
+            lastEnd   = end;
+            continue;
+        }
+
+        if (start - lastEnd > PAGESIZE_VAR * 2) {
+            Debug::log(LOG, "seekNewPageAddr: found gap: 0x{:x}-0x{:x} ({} bytes)", lastEnd, start, start - lastEnd);
+            MAPS.close();
+            return lastEnd;
+        }
+
+        lastStart = start;
+        lastEnd   = end;
+    }
+
+    MAPS.close();
+    return 0;
+}
+
+uint64_t CHookSystem::getAddressForTrampo() {
+    // yes, technically this creates a memory leak of 64B every hook creation. But I don't care.
+    // tracking all the users of the memory would be painful.
+    // Nobody will hook 100k times, and even if, that's only 6.4 MB. Nothing.
+
+    SAllocatedPage* page = nullptr;
+    for (auto& p : pages) {
+        if (p.used + HOOK_TRAMPOLINE_MAX_SIZE > p.len)
+            continue;
+
+        page = &p;
+        break;
+    }
+
+    if (!page)
+        page = &pages.emplace_back();
+
+    if (!page->addr) {
+        // allocate it
+        Debug::log(LOG, "getAddressForTrampo: Allocating new page for hooks");
+        const uint64_t PAGESIZE_VAR = sysconf(_SC_PAGE_SIZE);
+        const auto     BASEPAGEADDR = seekNewPageAddr();
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            for (int i = 0; i <= 2; ++i) {
+                const auto PAGEADDR = BASEPAGEADDR + i * PAGESIZE_VAR;
+
+                page->addr = (uint64_t)mmap((void*)PAGEADDR, PAGESIZE_VAR, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                page->len  = PAGESIZE_VAR;
+                page->used = 0;
+
+                Debug::log(LOG, "Attempted to allocate 0x{:x}, got 0x{:x}", PAGEADDR, page->addr);
+
+                if (page->addr == (uint64_t)MAP_FAILED)
+                    continue;
+                if (page->addr != PAGEADDR && attempt == 0) {
+                    munmap((void*)page->addr, PAGESIZE_VAR);
+                    page->addr = 0;
+                    page->len  = 0;
+                    continue;
+                }
+
+                break;
+            }
+            if (page->addr)
+                break;
+        }
+    }
+
+    const auto ADDRFORCONSUMER = page->addr + page->used;
+
+    page->used += HOOK_TRAMPOLINE_MAX_SIZE;
+
+    Debug::log(LOG, "getAddressForTrampo: Returning addr 0x{:x} for page at 0x{:x}", ADDRFORCONSUMER, page->addr);
+
+    return ADDRFORCONSUMER;
 }

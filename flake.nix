@@ -7,25 +7,11 @@
     # <https://github.com/nix-systems/nix-systems>
     systems.url = "github:nix-systems/default-linux";
 
-    wlroots = {
-      type = "gitlab";
-      host = "gitlab.freedesktop.org";
-      owner = "wlroots";
-      repo = "wlroots";
-      rev = "50eae512d9cecbf0b3b1898bb1f0b40fa05fe19b";
-      flake = false;
-    };
-
     hyprcursor = {
       url = "github:hyprwm/hyprcursor";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.systems.follows = "systems";
-    };
-
-    hyprland-protocols = {
-      url = "github:hyprwm/hyprland-protocols";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.systems.follows = "systems";
+      inputs.hyprlang.follows = "hyprlang";
     };
 
     hyprlang = {
@@ -34,11 +20,16 @@
       inputs.systems.follows = "systems";
     };
 
+    hyprwayland-scanner = {
+      url = "github:hyprwm/hyprwayland-scanner";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.systems.follows = "systems";
+    };
+
     xdph = {
       url = "github:hyprwm/xdg-desktop-portal-hyprland";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.systems.follows = "systems";
-      inputs.hyprland-protocols.follows = "hyprland-protocols";
       inputs.hyprlang.follows = "hyprlang";
     };
   };
@@ -83,11 +74,6 @@
         # hyprland-extras
         
         xdg-desktop-portal-hyprland
-        # dependencies
-        
-        hyprland-protocols
-        wlroots-hyprland
-        udis86
         ;
     });
 
@@ -97,13 +83,9 @@
           stdenv = pkgsFor.${system}.gcc13Stdenv;
         } {
           name = "hyprland-shell";
-          nativeBuildInputs = with pkgsFor.${system}; [cmake python3 expat libxml2];
-          buildInputs = [self.packages.${system}.wlroots-hyprland];
+          nativeBuildInputs = with pkgsFor.${system}; [expat libxml2];
           hardeningDisable = ["fortify"];
-          inputsFrom = [
-            self.packages.${system}.wlroots-hyprland
-            self.packages.${system}.hyprland
-          ];
+          inputsFrom = [pkgsFor.${system}.hyprland];
         };
     });
 
@@ -111,10 +93,5 @@
 
     nixosModules.default = import ./nix/module.nix inputs;
     homeManagerModules.default = import ./nix/hm-module.nix self;
-  };
-
-  nixConfig = {
-    extra-substituters = ["https://hyprland.cachix.org"];
-    extra-trusted-public-keys = ["hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc="];
   };
 }

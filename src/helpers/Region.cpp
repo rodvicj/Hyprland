@@ -8,7 +8,7 @@ CRegion::CRegion() {
     pixman_region32_init(&m_rRegion);
 }
 
-CRegion::CRegion(pixman_region32_t* ref) {
+CRegion::CRegion(const pixman_region32_t* const ref) {
     pixman_region32_init(&m_rRegion);
     pixman_region32_copy(&m_rRegion, ref);
 }
@@ -142,6 +142,9 @@ bool CRegion::empty() const {
 }
 
 Vector2D CRegion::closestPoint(const Vector2D& vec) const {
+    if (containsPoint(vec))
+        return vec;
+
     double   bestDist = __FLT_MAX__;
     Vector2D leader   = vec;
 
@@ -162,7 +165,7 @@ Vector2D CRegion::closestPoint(const Vector2D& vec) const {
         else
             y = vec.y;
 
-        double distance = sqrt(pow(x, 2) + pow(y, 2));
+        double distance = pow(x, 2) + pow(y, 2);
         if (distance < bestDist) {
             bestDist = distance;
             leader   = {x, y};

@@ -5,20 +5,9 @@ project('Hyprland', 'cpp', 'c',
     'default_library=static',
     'optimization=3',
     'buildtype=release',
-    'debug=false'
-    # 'cpp_std=c++23' # not yet supported by meson, as of version 0.63.0
-    ])
-
-# clang v14.0.6 uses C++2b instead of C++23, so we've gotta account for that
-# replace the following with a project default option once meson gets support for C++23
-cpp_compiler = meson.get_compiler('cpp')
-if cpp_compiler.has_argument('-std=c++23')
-  add_global_arguments('-std=c++23', language: 'cpp')
-elif cpp_compiler.has_argument('-std=c++2b')
-  add_global_arguments('-std=c++2b', language: 'cpp')
-else
-  error('Could not configure current C++ compiler (' + cpp_compiler.get_id() + ' ' + cpp_compiler.version() + ') with required C++ standard (C++23)')
-endif
+    'debug=false',
+    'cpp_std=c++23',
+  ])
 
 add_project_arguments(
   [
@@ -26,14 +15,16 @@ add_project_arguments(
     '-Wno-unused-value',
     '-Wno-missing-field-initializers',
     '-Wno-narrowing',
+    '-Wno-pointer-arith',
   ],
   language: 'cpp')
 
+cpp_compiler = meson.get_compiler('cpp')
 if cpp_compiler.check_header('execinfo.h')
   add_project_arguments('-DHAS_EXECINFO', language: 'cpp')
 endif
 
-wlroots = subproject('wlroots', default_options: ['examples=false', 'renderers=gles2'])
+wlroots = subproject('wlroots-hyprland', default_options: ['examples=false', 'renderers=gles2'])
 have_xwlr = wlroots.get_variable('features').get('xwayland')
 xcb_dep = dependency('xcb', required: get_option('xwayland'))
 
@@ -51,14 +42,10 @@ if not have_xwayland
 endif
 
 backtrace_dep = cpp_compiler.find_library('execinfo', required: false)
-systemd_dep = dependency('libsystemd', required: get_option('systemd'))
+epoll_dep = dependency('epoll-shim', required: false) # timerfd on BSDs
 
 if get_option('systemd').enabled()
-  if systemd_dep.found()
-    add_project_arguments('-DUSES_SYSTEMD', language: 'cpp')
-  else
-  	error('Cannot enable systemd in Hyprland: libsystemd was not found')
-  endif
+  add_project_arguments('-DUSES_SYSTEMD', language: 'cpp')
 endif
 
 if get_option('legacy_renderer').enabled()
@@ -69,7 +56,7 @@ if get_option('buildtype') == 'debug'
   add_project_arguments('-DHYPRLAND_DEBUG', language: 'cpp')
 endif
 
-version_h = run_command('sh', '-c', 'scripts/generateVersion.sh')
+version_h = run_command('sh', '-c', 'scripts/generateVersion.sh', check: true)
 
 globber = run_command('find', 'src', '-name', '*.h*', check: true)
 headers = globber.stdout().strip().split('\n')
@@ -93,5 +80,5 @@ import('pkgconfig').generate(
   url: 'https://github.com/hyprwm/Hyprland',
   description: 'Hyprland header files',
   install_dir: pkg_install_dir,
-  subdirs: ['', 'hyprland/protocols', 'hyprland/wlroots'],
+  subdirs: ['', 'hyprland/protocols', 'hyprland', 'hyprland/wlr'],
 )

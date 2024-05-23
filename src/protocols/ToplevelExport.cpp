@@ -1,5 +1,7 @@
 #include "ToplevelExport.hpp"
 #include "../Compositor.hpp"
+#include "ForeignToplevelWlr.hpp"
+#include "../managers/PointerManager.hpp"
 
 #include <algorithm>
 
@@ -39,17 +41,12 @@ CToplevelExportProtocolManager::CToplevelExportProtocolManager() {
     Debug::log(LOG, "ToplevelExportManager started successfully!");
 }
 
-wlr_foreign_toplevel_handle_v1* zwlrHandleFromResource(wl_resource* resource) {
-    // we can't assert here, but it doesnt matter.
-    return (wlr_foreign_toplevel_handle_v1*)wl_resource_get_user_data(resource);
-}
-
 static void handleCaptureToplevel(wl_client* client, wl_resource* resource, uint32_t frame, int32_t overlay_cursor, uint32_t handle) {
     g_pProtocolManager->m_pToplevelExportProtocolManager->captureToplevel(client, resource, frame, overlay_cursor, g_pCompositor->getWindowFromHandle(handle));
 }
 
 static void handleCaptureToplevelWithWlr(wl_client* client, wl_resource* resource, uint32_t frame, int32_t overlay_cursor, wl_resource* handle) {
-    g_pProtocolManager->m_pToplevelExportProtocolManager->captureToplevel(client, resource, frame, overlay_cursor, g_pCompositor->getWindowFromZWLRHandle(handle));
+    g_pProtocolManager->m_pToplevelExportProtocolManager->captureToplevel(client, resource, frame, overlay_cursor, PROTO::foreignToplevelWlr->windowFromHandleResource(handle));
 }
 
 static void handleDestroy(wl_client* client, wl_resource* resource) {
@@ -140,7 +137,7 @@ void CToplevelExportProtocolManager::removeFrame(SScreencopyFrame* frame, bool f
     m_lFrames.remove(*frame);
 }
 
-void CToplevelExportProtocolManager::captureToplevel(wl_client* client, wl_resource* resource, uint32_t frame, int32_t overlay_cursor, CWindow* pWindow) {
+void CToplevelExportProtocolManager::captureToplevel(wl_client* client, wl_resource* resource, uint32_t frame, int32_t overlay_cursor, PHLWINDOW pWindow) {
     const auto PCLIENT = clientFromResource(resource);
 
     // create a frame
@@ -149,15 +146,15 @@ void CToplevelExportProtocolManager::captureToplevel(wl_client* client, wl_resou
     PFRAME->resource      = wl_resource_create(client, &hyprland_toplevel_export_frame_v1_interface, wl_resource_get_version(resource), frame);
     PFRAME->pWindow       = pWindow;
 
-    if (!PFRAME->pWindow) {
-        Debug::log(ERR, "Client requested sharing of window handle {:x} which does not exist!", PFRAME->pWindow);
+    if (!pWindow) {
+        Debug::log(ERR, "Client requested sharing of window handle {:x} which does not exist!", pWindow);
         hyprland_toplevel_export_frame_v1_send_failed(PFRAME->resource);
         removeFrame(PFRAME);
         return;
     }
 
-    if (!PFRAME->pWindow->m_bIsMapped || PFRAME->pWindow->isHidden()) {
-        Debug::log(ERR, "Client requested sharing of window handle {:x} which is not shareable!", PFRAME->pWindow);
+    if (!pWindow->m_bIsMapped || pWindow->isHidden()) {
+        Debug::log(ERR, "Client requested sharing of window handle {:x} which is not shareable!", pWindow);
         hyprland_toplevel_export_frame_v1_send_failed(PFRAME->resource);
         removeFrame(PFRAME);
         return;
@@ -175,7 +172,7 @@ void CToplevelExportProtocolManager::captureToplevel(wl_client* client, wl_resou
     PFRAME->client = PCLIENT;
     PCLIENT->ref++;
 
-    const auto PMONITOR = g_pCompositor->getMonitorFromID(PFRAME->pWindow->m_iMonitorID);
+    const auto PMONITOR = g_pCompositor->getMonitorFromID(pWindow->m_iMonitorID);
 
     g_pHyprRenderer->makeEGLCurrent();
 
@@ -201,7 +198,7 @@ void CToplevelExportProtocolManager::captureToplevel(wl_client* client, wl_resou
         PFRAME->dmabufFormat = DRM_FORMAT_INVALID;
     }
 
-    PFRAME->box = {0, 0, (int)(PFRAME->pWindow->m_vRealSize.value().x * PMONITOR->scale), (int)(PFRAME->pWindow->m_vRealSize.value().y * PMONITOR->scale)};
+    PFRAME->box = {0, 0, (int)(pWindow->m_vRealSize.value().x * PMONITOR->scale), (int)(pWindow->m_vRealSize.value().y * PMONITOR->scale)};
     int ow, oh;
     wlr_output_effective_resolution(PMONITOR->output, &ow, &oh);
     PFRAME->box.transform(PMONITOR->transform, ow, oh).round();
@@ -225,15 +222,17 @@ void CToplevelExportProtocolManager::copyFrame(wl_client* client, wl_resource* r
         return;
     }
 
-    if (!g_pCompositor->windowValidMapped(PFRAME->pWindow)) {
-        Debug::log(ERR, "Client requested sharing of window handle {:x} which is gone!", (uintptr_t)PFRAME->pWindow);
+    const auto PWINDOW = PFRAME->pWindow.lock();
+
+    if (!validMapped(PWINDOW)) {
+        Debug::log(ERR, "Client requested sharing of window handle {:x} which is gone!", (uintptr_t)PWINDOW.get());
         hyprland_toplevel_export_frame_v1_send_failed(PFRAME->resource);
         removeFrame(PFRAME);
         return;
     }
 
-    if (!PFRAME->pWindow->m_bIsMapped || PFRAME->pWindow->isHidden()) {
-        Debug::log(ERR, "Client requested sharing of window handle {:x} which is not shareable (2)!", PFRAME->pWindow);
+    if (!PWINDOW->m_bIsMapped || PWINDOW->isHidden()) {
+        Debug::log(ERR, "Client requested sharing of window handle {:x} which is not shareable (2)!", PWINDOW);
         hyprland_toplevel_export_frame_v1_send_failed(PFRAME->resource);
         removeFrame(PFRAME);
         return;
@@ -303,17 +302,19 @@ void CToplevelExportProtocolManager::onOutputCommit(CMonitor* pMonitor, wlr_outp
 
     // share frame if correct output
     for (auto& f : m_vFramesAwaitingWrite) {
-        if (!f->pWindow) {
+        const auto PWINDOW = f->pWindow.lock();
+
+        if (!validMapped(PWINDOW)) {
             framesToRemove.push_back(f);
             continue;
         }
 
-        if (PMONITOR != g_pCompositor->getMonitorFromID(f->pWindow->m_iMonitorID))
+        if (PMONITOR != g_pCompositor->getMonitorFromID(PWINDOW->m_iMonitorID))
             continue;
 
-        CBox geometry = {f->pWindow->m_vRealPosition.value().x, f->pWindow->m_vRealPosition.value().y, f->pWindow->m_vRealSize.value().x, f->pWindow->m_vRealSize.value().y};
+        CBox geometry = {PWINDOW->m_vRealPosition.value().x, PWINDOW->m_vRealPosition.value().y, PWINDOW->m_vRealSize.value().x, PWINDOW->m_vRealSize.value().y};
 
-        if (!wlr_output_layout_intersects(g_pCompositor->m_sWLROutputLayout, pMonitor->output, geometry.pWlr()))
+        if (geometry.intersection({pMonitor->vecPosition, pMonitor->vecSize}).empty())
             continue;
 
         shareFrame(f);
@@ -330,7 +331,7 @@ void CToplevelExportProtocolManager::onOutputCommit(CMonitor* pMonitor, wlr_outp
 }
 
 void CToplevelExportProtocolManager::shareFrame(SScreencopyFrame* frame) {
-    if (!frame->buffer || !g_pCompositor->windowValidMapped(frame->pWindow))
+    if (!frame->buffer || !validMapped(frame->pWindow))
         return;
 
     timespec now;
@@ -382,18 +383,20 @@ bool CToplevelExportProtocolManager::copyFrameShm(SScreencopyFrame* frame, times
         return false;
     }
 
-    if (frame->overlayCursor)
-        wlr_output_lock_software_cursors(PMONITOR->output, true);
+    if (frame->overlayCursor) {
+        g_pPointerManager->lockSoftwareForMonitor(PMONITOR->self.lock());
+        g_pPointerManager->damageCursor(PMONITOR->self.lock());
+    }
 
     g_pHyprOpenGL->clear(CColor(0, 0, 0, 1.0));
 
     // render client at 0,0
-    g_pHyprRenderer->m_bBlockSurfaceFeedback = g_pHyprRenderer->shouldRenderWindow(frame->pWindow); // block the feedback to avoid spamming the surface if it's visible
-    g_pHyprRenderer->renderWindow(frame->pWindow, PMONITOR, now, false, RENDER_PASS_ALL, true, true);
+    g_pHyprRenderer->m_bBlockSurfaceFeedback = g_pHyprRenderer->shouldRenderWindow(frame->pWindow.lock()); // block the feedback to avoid spamming the surface if it's visible
+    g_pHyprRenderer->renderWindow(frame->pWindow.lock(), PMONITOR, now, false, RENDER_PASS_ALL, true, true);
     g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
 
     if (frame->overlayCursor)
-        g_pHyprRenderer->renderSoftwareCursors(PMONITOR, fakeDamage, g_pInputManager->getMouseCoordsInternal() - frame->pWindow->m_vRealPosition.value());
+        g_pPointerManager->renderSoftwareCursorsFor(PMONITOR->self.lock(), now, fakeDamage, g_pInputManager->getMouseCoordsInternal() - frame->pWindow->m_vRealPosition.value());
 
     const auto PFORMAT = g_pHyprOpenGL->getPixelFormatFromDRM(format);
     if (!PFORMAT) {
@@ -402,6 +405,7 @@ bool CToplevelExportProtocolManager::copyFrameShm(SScreencopyFrame* frame, times
         return false;
     }
 
+    g_pHyprOpenGL->m_RenderData.blockScreenShader = true;
     g_pHyprRenderer->endRender();
 
     g_pHyprRenderer->makeEGLCurrent();
@@ -418,8 +422,10 @@ bool CToplevelExportProtocolManager::copyFrameShm(SScreencopyFrame* frame, times
 
     wlr_buffer_end_data_ptr_access(frame->buffer);
 
-    if (frame->overlayCursor)
-        wlr_output_lock_software_cursors(PMONITOR->output, false);
+    if (frame->overlayCursor) {
+        g_pPointerManager->unlockSoftwareForMonitor(PMONITOR->self.lock());
+        g_pPointerManager->damageCursor(PMONITOR->self.lock());
+    }
 
     return true;
 }
@@ -434,20 +440,21 @@ bool CToplevelExportProtocolManager::copyFrameDmabuf(SScreencopyFrame* frame, ti
 
     g_pHyprOpenGL->clear(CColor(0, 0, 0, 1.0));
 
-    g_pHyprRenderer->m_bBlockSurfaceFeedback = g_pHyprRenderer->shouldRenderWindow(frame->pWindow); // block the feedback to avoid spamming the surface if it's visible
-    g_pHyprRenderer->renderWindow(frame->pWindow, PMONITOR, now, false, RENDER_PASS_ALL, true, true);
+    g_pHyprRenderer->m_bBlockSurfaceFeedback = g_pHyprRenderer->shouldRenderWindow(frame->pWindow.lock()); // block the feedback to avoid spamming the surface if it's visible
+    g_pHyprRenderer->renderWindow(frame->pWindow.lock(), PMONITOR, now, false, RENDER_PASS_ALL, true, true);
     g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
 
     if (frame->overlayCursor)
-        g_pHyprRenderer->renderSoftwareCursors(PMONITOR, fakeDamage, g_pInputManager->getMouseCoordsInternal() - frame->pWindow->m_vRealPosition.value());
+        g_pPointerManager->renderSoftwareCursorsFor(PMONITOR->self.lock(), now, fakeDamage, g_pInputManager->getMouseCoordsInternal() - frame->pWindow->m_vRealPosition.value());
 
+    g_pHyprOpenGL->m_RenderData.blockScreenShader = true;
     g_pHyprRenderer->endRender();
     return true;
 }
 
-void CToplevelExportProtocolManager::onWindowUnmap(CWindow* pWindow) {
+void CToplevelExportProtocolManager::onWindowUnmap(PHLWINDOW pWindow) {
     for (auto& f : m_lFrames) {
-        if (f.pWindow == pWindow)
-            f.pWindow = nullptr;
+        if (f.pWindow.lock() == pWindow)
+            f.pWindow.reset();
     }
 }

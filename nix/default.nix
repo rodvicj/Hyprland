@@ -2,24 +2,34 @@
   lib,
   stdenv,
   pkg-config,
+  pkgconf,
   makeWrapper,
-  meson,
+  cmake,
   ninja,
   binutils,
   cairo,
+  expat,
+  fribidi,
   git,
   hyprcursor,
-  hyprland-protocols,
   hyprlang,
+  hyprwayland-scanner,
   jq,
   libGL,
+  libdatrie,
   libdrm,
+  libexecinfo,
   libinput,
-  libxcb,
+  libselinux,
+  libsepol,
+  libthai,
+  libuuid,
   libxkbcommon,
   mesa,
   pango,
   pciutils,
+  pcre2,
+  python3,
   systemd,
   tomlplusplus,
   udis86,
@@ -27,7 +37,7 @@
   wayland-protocols,
   wayland-scanner,
   wlroots,
-  xcbutilwm,
+  xorg,
   xwayland,
   debug ? false,
   enableXWayland ? true,
@@ -57,13 +67,31 @@ assert lib.assertMsg (!hidpiXWayland) "The option `hidpiXWayland` has been remov
       src = lib.cleanSource ../.;
     };
 
-    nativeBuildInputs = [
-      jq
-      meson
-      ninja
-      pkg-config
-      makeWrapper
-      wayland-scanner
+    postPatch = ''
+      # Fix hardcoded paths to /usr installation
+      sed -i "s#/usr#$out#" src/render/OpenGL.cpp
+
+      # Remove extra @PREFIX@ to fix pkg-config paths
+      sed -i "s#@PREFIX@/##g" hyprland.pc.in
+    '';
+
+    DATE = date;
+    HASH = commit;
+    DIRTY = if commit == "" then "dirty" else "";
+
+    nativeBuildInputs = lib.concatLists [
+      [
+        hyprwayland-scanner
+        jq
+        makeWrapper
+        cmake
+        ninja
+        pkg-config
+        python3
+        wayland-scanner
+      ]
+      # introduce this later so that cmake takes precedence
+      wlroots.nativeBuildInputs
     ];
 
     outputs = [
@@ -72,75 +100,62 @@ assert lib.assertMsg (!hidpiXWayland) "The option `hidpiXWayland` has been remov
       "dev"
     ];
 
-    buildInputs =
+    buildInputs = lib.concatLists [
+      wlroots.buildInputs
+      udis86.buildInputs
       [
         cairo
+        expat
+        fribidi
         git
         hyprcursor.dev
-        hyprland-protocols
         hyprlang
-        libdrm
         libGL
+        libdrm
+        libdatrie
         libinput
+        libselinux
+        libsepol
+        libthai
+        libuuid
         libxkbcommon
         mesa
         pango
         pciutils
+        pcre2
         tomlplusplus
-        udis86
         wayland
         wayland-protocols
-        wlroots
       ]
-      ++ lib.optionals enableXWayland [libxcb xcbutilwm xwayland]
-      ++ lib.optionals withSystemd [systemd];
+      (lib.optionals stdenv.hostPlatform.isMusl [libexecinfo])
+      (lib.optionals enableXWayland [
+        xorg.libxcb
+        xorg.libXdmcp
+        xorg.xcbutil
+        xorg.xcbutilwm
+        xwayland
+      ])
+      (lib.optionals withSystemd [systemd])
+    ];
 
-    mesonBuildType =
+    cmakeBuildType =
       if debug
-      then "debug"
-      else "release";
+      then "Debug"
+      else "RelWithDebInfo";
 
-    mesonAutoFeatures = "disabled";
-
-    mesonFlags = builtins.concatLists [
-      (lib.optional enableXWayland "-Dxwayland=enabled")
-      (lib.optional legacyRenderer "-Dlegacy_renderer=enabled")
-      (lib.optional withSystemd "-Dsystemd=enabled")
+    cmakeFlags = [
+      (lib.cmakeBool "NO_XWAYLAND" (!enableXWayland))
+      (lib.cmakeBool "LEGACY_RENDERER" legacyRenderer)
+      (lib.cmakeBool "NO_SYSTEMD" (!withSystemd))
     ];
-
-    patches = [
-      # make meson use the provided wlroots instead of the git submodule
-      ./patches/meson-build.patch
-    ];
-
-    postPatch = ''
-      # Fix hardcoded paths to /usr installation
-      sed -i "s#/usr#$out#" src/render/OpenGL.cpp
-
-      # Generate version.h
-      cp src/version.h.in src/version.h
-      substituteInPlace src/version.h \
-        --replace "@HASH@" '${commit}' \
-        --replace "@BRANCH@" "" \
-        --replace "@MESSAGE@" "" \
-        --replace "@DATE@" "${date}" \
-        --replace "@TAG@" "" \
-        --replace "@DIRTY@" '${
-        if commit == ""
-        then "dirty"
-        else ""
-      }'
-    '';
 
     postInstall = ''
-      ln -s ${wlroots}/include/wlr $dev/include/hyprland/wlroots
-
       ${lib.optionalString wrapRuntimeDeps ''
         wrapProgram $out/bin/Hyprland \
           --suffix PATH : ${lib.makeBinPath [
-          stdenv.cc
           binutils
           pciutils
+          pkgconf
         ]}
       ''}
     '';
@@ -148,10 +163,10 @@ assert lib.assertMsg (!hidpiXWayland) "The option `hidpiXWayland` has been remov
     passthru.providedSessions = ["hyprland"];
 
     meta = with lib; {
-      homepage = "https://github.com/vaxerski/Hyprland";
+      homepage = "https://github.com/hyprwm/Hyprland";
       description = "A dynamic tiling Wayland compositor that doesn't sacrifice on its looks";
       license = licenses.bsd3;
-      platforms = platforms.linux;
+      platforms = wlroots.meta.platforms;
       mainProgram = "Hyprland";
     };
   }

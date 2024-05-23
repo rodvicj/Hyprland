@@ -4,9 +4,12 @@
 #include <csignal>
 #include <utility>
 
+#include "helpers/memory/WeakPtr.hpp"
+
+#define UP std::unique_ptr
+
 #ifndef NDEBUG
 #ifdef HYPRLAND_DEBUG
-#define HYPRLAND_DEBUG
 #define ISDEBUG true
 #else
 #define ISDEBUG false
@@ -32,7 +35,7 @@
 #define DYNLISTENER(name)      CHyprWLListener hyprListener_##name
 #define DYNMULTILISTENER(name) wl_listener listen_##name
 
-#define VECINRECT(vec, x1, y1, x2, y2) ((vec).x >= (x1) && (vec).x <= (x2) && (vec).y >= (y1) && (vec).y <= (y2))
+#define VECINRECT(vec, x1, y1, x2, y2) ((vec).x >= (x1) && (vec).x < (x2) && (vec).y >= (y1) && (vec).y < (y2))
 
 #define DELTALESSTHAN(a, b, delta) (abs((a) - (b)) < (delta))
 

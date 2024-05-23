@@ -1,8 +1,8 @@
 #include "IHyprWindowDecoration.hpp"
 
-#include "../../Window.hpp"
+class CWindow;
 
-IHyprWindowDecoration::IHyprWindowDecoration(CWindow* pWindow) {
+IHyprWindowDecoration::IHyprWindowDecoration(PHLWINDOW pWindow) {
     m_pWindow = pWindow;
 }
 

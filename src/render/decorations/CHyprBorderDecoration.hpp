@@ -4,18 +4,18 @@
 
 class CHyprBorderDecoration : public IHyprWindowDecoration {
   public:
-    CHyprBorderDecoration(CWindow*);
+    CHyprBorderDecoration(PHLWINDOW);
     virtual ~CHyprBorderDecoration();
 
     virtual SDecorationPositioningInfo getPositioningInfo();
 
     virtual void                       onPositioningReply(const SDecorationPositioningReply& reply);
 
-    virtual void                       draw(CMonitor*, float a, const Vector2D& offset);
+    virtual void                       draw(CMonitor*, float a);
 
     virtual eDecorationType            getDecorationType();
 
-    virtual void                       updateWindow(CWindow*);
+    virtual void                       updateWindow(PHLWINDOW);
 
     virtual void                       damageEntire();
 
@@ -29,7 +29,7 @@ class CHyprBorderDecoration : public IHyprWindowDecoration {
     SWindowDecorationExtents m_seExtents;
     SWindowDecorationExtents m_seReportedExtents;
 
-    CWindow*                 m_pWindow = nullptr;
+    PHLWINDOWREF             m_pWindow;
 
     Vector2D                 m_vLastWindowPos;
     Vector2D                 m_vLastWindowSize;
